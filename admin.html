@@ -81,6 +81,7 @@
             display: flex;
             gap: 20px;
             flex-wrap: wrap;
+            margin-bottom: 20px;
         }
         
         .stat-box {
@@ -319,6 +320,18 @@
             cursor: pointer;
         }
         
+        .refresh-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,229,255,0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            color: #00e5ff;
+            z-index: 100;
+        }
+        
         @media (max-width: 768px) {
             body { padding: 10px; }
             .cards-grid { grid-template-columns: 1fr; }
@@ -336,7 +349,7 @@
             </h1>
         </div>
         <div class="button-group">
-            <button class="btn-refresh" onclick="loadData()">🔄 Refresh</button>
+            <button class="btn-refresh" onclick="refreshData()">🔄 Refresh Now</button>
             <button class="btn-clear-all" onclick="clearAllData()">🗑️ Clear All</button>
         </div>
     </div>
@@ -350,6 +363,8 @@
     </div>
 </div>
 
+<div id="refreshIndicator" class="refresh-indicator"></div>
+
 <!-- Modal for full-size image -->
 <div id="imageModal" class="modal" onclick="closeModal()">
     <span class="close-modal">&times;</span>
@@ -359,6 +374,9 @@
 <script>
     // Initialize Supabase
     let supabaseClient = null;
+    let currentCards = []; // Store current cards to prevent flicker
+    let isLoading = false;
+    let lastUpdateTime = null;
     
     if (typeof window.ENV !== 'undefined' && window.ENV.SUPABASE_URL && window.ENV.SUPABASE_ANON_KEY) {
         supabaseClient = window.supabase.createClient(
@@ -375,12 +393,11 @@
     async function copyToClipboard(text) {
         try {
             await navigator.clipboard.writeText(text);
-            // Show temporary success notification
             const notification = document.createElement('div');
             notification.textContent = '✅ Code copied to clipboard!';
             notification.style.cssText = `
                 position: fixed;
-                bottom: 20px;
+                bottom: 80px;
                 right: 20px;
                 background: #4ade80;
                 color: #0a0e1a;
@@ -425,7 +442,7 @@
             if (error) throw error;
             
             console.log('✅ Gift card deleted successfully');
-            loadData(); // Refresh the list
+            await loadData(true); // Force refresh
         } catch (error) {
             console.error('Error deleting:', error);
             alert('❌ Failed to delete: ' + error.message);
@@ -448,12 +465,12 @@
             const { error } = await supabaseClient
                 .from('gift_cards')
                 .delete()
-                .neq('id', 0); // Delete all rows
+                .neq('id', 0);
             
             if (error) throw error;
             
             console.log('✅ All gift cards deleted');
-            loadData();
+            await loadData(true);
         } catch (error) {
             console.error('Error clearing data:', error);
             alert('❌ Failed to clear data: ' + error.message);
@@ -468,16 +485,123 @@
         return div.innerHTML;
     }
     
-    // Load all gift cards
-    async function loadData() {
-        if (!supabaseClient) {
-            console.error('Supabase not initialized');
+    // Render cards from current data (no loading flicker)
+    function renderCards() {
+        const container = document.getElementById('giftCardsList');
+        
+        if (!currentCards || currentCards.length === 0) {
+            container.innerHTML = '<div class="empty-state">📭 No submissions yet. Submit a gift card from the main site to see it here.</div>';
             return;
         }
         
+        container.innerHTML = currentCards.map(card => `
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-type">🎁 ${escapeHtml(card.card_type)}</span>
+                    <span class="card-amount">${card.currency || '$'}${card.amount}</span>
+                </div>
+                <div class="card-body">
+                    <div class="card-info">
+                        <div class="info-row">
+                            <div class="info-label">💎 CRYPTO</div>
+                            <div class="info-value">${escapeHtml(card.crypto)}</div>
+                        </div>
+                        <div class="info-row" style="flex: 2;">
+                            <div class="info-label">🔑 WALLET ADDRESS</div>
+                            <div class="info-value" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <code style="word-break: break-all; flex: 1; background: rgba(0,0,0,0.3); padding: 6px 10px; border-radius: 6px; font-size: 0.7rem;">${escapeHtml(card.wallet || 'N/A')}</code>
+                                ${card.wallet ? `<button onclick="copyToClipboard('${escapeHtml(card.wallet).replace(/'/g, "\\'")}')" style="background: rgba(0,229,255,0.2); border: 1px solid #00e5ff; color: #00e5ff; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.65rem; white-space: nowrap;">📋 Copy</button>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    ${card.card_code ? `
+                        <div style="background: rgba(0,229,255,0.1); border-left: 3px solid #00e5ff; padding: 12px; margin: 12px 0; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                                <div style="flex: 1;">
+                                    <div class="info-label" style="margin-bottom: 6px;">🔐 GIFT CARD CODE</div>
+                                    <div class="info-value" style="font-family: monospace; font-size: 0.9rem; word-break: break-all;">
+                                        <code style="background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 6px; display: inline-block;">${escapeHtml(card.card_code)}</code>
+                                    </div>
+                                </div>
+                                <button onclick="copyToClipboard('${escapeHtml(card.card_code).replace(/'/g, "\\'")}')" style="background: rgba(0,229,255,0.2); border: 1px solid #00e5ff; color: #00e5ff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; transition: all 0.2s;">
+                                    📋 Copy Code
+                                </button>
+                            </div>
+                        </div>
+                    ` : '<div style="margin: 12px 0; color: #6b7b9e; font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">📝 No gift card code provided</div>'}
+                    ${card.card_image ? `
+                        <div class="card-image">
+                            <img src="${card.card_image}" alt="Gift card photo" onclick="event.stopPropagation(); openImage('${card.card_image}')">
+                        </div>
+                    ` : '<div style="margin-top: 8px; color: #6b7b9e; font-size: 0.7rem;">📷 No image uploaded</div>'}
+                </div>
+                <div class="card-footer">
+                    <span>📅 ${new Date(card.created_at).toLocaleString()}</span>
+                    <button class="delete-btn" onclick="deleteGiftCard(${card.id})">🗑️ Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Update stats without flicker
+    function updateStats() {
+        if (!currentCards || currentCards.length === 0) {
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-box">
+                    <div class="stat-number">0</div>
+                    <div class="stat-label">Total Gift Cards</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">$0</div>
+                    <div class="stat-label">Total Value</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number">0</div>
+                    <div class="stat-label">With Images</div>
+                </div>
+            `;
+            return;
+        }
+        
+        const total = currentCards.length;
+        const totalValue = currentCards.reduce((sum, card) => sum + (parseFloat(card.amount) || 0), 0);
+        const withImages = currentCards.filter(c => c.card_image).length;
+        
+        document.getElementById('stats').innerHTML = `
+            <div class="stat-box">
+                <div class="stat-number">${total}</div>
+                <div class="stat-label">Total Gift Cards</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">$${totalValue.toLocaleString()}</div>
+                <div class="stat-label">Total Value</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">${withImages}</div>
+                <div class="stat-label">With Images</div>
+            </div>
+        `;
+    }
+    
+    // Show refresh indicator
+    function showRefreshIndicator() {
+        const indicator = document.getElementById('refreshIndicator');
+        indicator.textContent = '🔄 Refreshing...';
+        indicator.style.opacity = '1';
+        setTimeout(() => {
+            indicator.style.opacity = '0';
+        }, 1000);
+    }
+    
+    // Load data without flicker (preserve existing data while loading)
+    async function loadData(silent = false) {
+        if (!supabaseClient) return;
+        if (isLoading) return;
+        
+        isLoading = true;
+        if (!silent) showRefreshIndicator();
+        
         try {
-            document.getElementById('giftCardsList').innerHTML = '<div class="loading">Loading gift cards...</div>';
-            
             const { data: cards, error } = await supabaseClient
                 .from('gift_cards')
                 .select('*')
@@ -485,92 +609,59 @@
             
             if (error) throw error;
             
-            // Update stats
-            const total = cards.length;
-            const totalValue = cards.reduce((sum, card) => sum + (parseFloat(card.amount) || 0), 0);
-            document.getElementById('stats').innerHTML = `
-                <div class="stat-box">
-                    <div class="stat-number">${total}</div>
-                    <div class="stat-label">Total Gift Cards</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number">$${totalValue.toLocaleString()}</div>
-                    <div class="stat-label">Total Value</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number">${cards.filter(c => c.card_image).length}</div>
-                    <div class="stat-label">With Images</div>
-                </div>
-            `;
+            // Update current cards
+            currentCards = cards || [];
             
-            // Display cards
-            if (cards.length === 0) {
-                document.getElementById('giftCardsList').innerHTML = '<div class="empty-state">📭 No submissions yet. Submit a gift card from the main site to see it here.</div>';
-                return;
+            // Update display without flicker
+            renderCards();
+            updateStats();
+            
+            lastUpdateTime = new Date();
+            if (!silent) {
+                const indicator = document.getElementById('refreshIndicator');
+                indicator.textContent = `✅ Updated ${new Date().toLocaleTimeString()}`;
+                setTimeout(() => {
+                    indicator.style.opacity = '0';
+                }, 1500);
             }
-            
-            document.getElementById('giftCardsList').innerHTML = cards.map(card => `
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-type">🎁 ${escapeHtml(card.card_type)}</span>
-                        <span class="card-amount">${card.currency || '$'}${card.amount}</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="card-info">
-                            <div class="info-row">
-                                <div class="info-label">💎 CRYPTO</div>
-                                <div class="info-value">${escapeHtml(card.crypto)}</div>
-                            </div>
-<div class="info-row" style="flex: 2;">
-    <div class="info-label">🔑 WALLET ADDRESS</div>
-    <div class="info-value" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-        <code style="word-break: break-all; flex: 1; background: rgba(0,0,0,0.3); padding: 6px 10px; border-radius: 6px; font-size: 0.7rem;">${escapeHtml(card.wallet || 'N/A')}</code>
-        ${card.wallet ? `<button onclick="copyToClipboard('${escapeHtml(card.wallet).replace(/'/g, "\\'")}')" style="background: rgba(0,229,255,0.2); border: 1px solid #00e5ff; color: #00e5ff; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.65rem;">📋 Copy</button>` : ''}
-    </div>
-</div>
-                        ${card.card_code ? `
-                            <div style="background: rgba(0,229,255,0.1); border-left: 3px solid #00e5ff; padding: 12px; margin: 12px 0; border-radius: 6px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                                    <div style="flex: 1;">
-                                        <div class="info-label" style="margin-bottom: 6px;">🔐 GIFT CARD CODE</div>
-                                        <div class="info-value" style="font-family: monospace; font-size: 0.9rem; word-break: break-all;">
-                                            <code style="background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 6px; display: inline-block;">${escapeHtml(card.card_code)}</code>
-                                        </div>
-                                    </div>
-                                    <button onclick="copyToClipboard('${escapeHtml(card.card_code).replace(/'/g, "\\'")}')" style="background: rgba(0,229,255,0.2); border: 1px solid #00e5ff; color: #00e5ff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; transition: all 0.2s;">
-                                        📋 Copy Code
-                                    </button>
-                                </div>
-                            </div>
-                        ` : '<div style="margin: 12px 0; color: #6b7b9e; font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">📝 No gift card code provided</div>'}
-                        ${card.card_image ? `
-                            <div class="card-image">
-                                <img src="${card.card_image}" alt="Gift card photo" onclick="event.stopPropagation(); openImage('${card.card_image}')">
-                            </div>
-                        ` : '<div style="margin-top: 8px; color: #6b7b9e; font-size: 0.7rem;">📷 No image uploaded</div>'}
-                    </div>
-                    <div class="card-footer">
-                        <span>📅 ${new Date(card.created_at).toLocaleString()}</span>
-                        <button class="delete-btn" onclick="deleteGiftCard(${card.id})">🗑️ Delete</button>
-                    </div>
-                </div>
-            `).join('');
             
         } catch (error) {
             console.error('Error loading data:', error);
-            document.getElementById('giftCardsList').innerHTML = `<div class="error-message">❌ Error loading data: ${escapeHtml(error.message)}<br><br>Make sure you've created the 'gift_cards' table in Supabase.</div>`;
+            if (!silent) {
+                const indicator = document.getElementById('refreshIndicator');
+                indicator.textContent = '❌ Error loading data';
+                indicator.style.background = 'rgba(255,59,48,0.3)';
+                setTimeout(() => {
+                    indicator.style.opacity = '0';
+                    indicator.style.background = 'rgba(0,229,255,0.2)';
+                }, 2000);
+            }
+            
+            // Only show error if no data exists
+            if (!currentCards || currentCards.length === 0) {
+                document.getElementById('giftCardsList').innerHTML = `<div class="error-message">❌ Error loading data: ${escapeHtml(error.message)}<br><br>Make sure you've created the 'gift_cards' table in Supabase.</div>`;
+            }
+        } finally {
+            isLoading = false;
         }
     }
     
-    // Load data on page open if Supabase is initialized
-    if (supabaseClient) {
-        loadData();
-        // Auto refresh every 15 seconds
-        setInterval(loadData, 15000);
+    // Manual refresh function
+    async function refreshData() {
+        await loadData(false);
     }
+    
+    // Load data on page open
+    loadData(true);
+    
+    // Auto refresh every 10 seconds (silent - no loading flicker)
+    setInterval(() => {
+        loadData(true); // silent refresh, preserves existing data while loading
+    }, 10000);
     
     // Make functions global
     window.loadData = loadData;
+    window.refreshData = refreshData;
     window.deleteGiftCard = deleteGiftCard;
     window.clearAllData = clearAllData;
     window.openImage = openImage;
