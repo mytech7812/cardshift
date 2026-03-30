@@ -531,19 +531,20 @@ footer{border-top:1px solid var(--glass-border);padding:40px 48px;display:flex;j
           <p class="cv-hint">You can also take a photo of the card code below.</p>
         </div>
 
-        <div class="cv-field">
-          <div class="cv-label"><div class="cv-label-dot" style="background:var(--cyan)"></div>Card Photo / Upload</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button class="cv-btn-back" type="button" onclick="triggerFileInput()">Take Photo / Upload</button>
-            <button class="cv-btn-back" type="button" onclick="clearPhoto()">Clear</button>
-            <input id="cv-photo" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelect(event)">
-          </div>
-          <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-            <img id="cv-photo-preview" src="" alt="" style="max-width:160px;max-height:120px;border-radius:8px;display:none;border:1px solid rgba(255,255,255,.06)">
-            <div id="cv-photo-meta" style="color:var(--muted);font-size:.85rem"></div>
-          </div>
-        </div>
-
+<div class="cv-field">
+  <div class="cv-label"><div class="cv-label-dot" style="background:var(--cyan)"></div>Card Photo / Upload</div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button class="cv-btn-back" type="button" onclick="triggerFileInput()">📸 Take Photo</button>
+    <button class="cv-btn-back" type="button" onclick="triggerFileUpload()">📁 Upload from Gallery</button>
+    <button class="cv-btn-back" type="button" onclick="clearPhoto()">🗑️ Clear</button>
+    <input id="cv-photo-camera" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhotoSelect(event)">
+    <input id="cv-photo-gallery" type="file" accept="image/*" style="display:none" onchange="handlePhotoSelect(event)">
+  </div>
+  <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+    <img id="cv-photo-preview" src="" alt="" style="max-width:160px;max-height:120px;border-radius:8px;display:none;border:1px solid rgba(255,255,255,.06)">
+    <div id="cv-photo-meta" style="color:var(--muted);font-size:.85rem"></div>
+  </div>
+</div>
         <div class="cv-field">
           <div class="cv-label"><div class="cv-label-dot" style="background:var(--gold)"></div>Card Denomination</div>
           <div class="cv-presets-grid">
