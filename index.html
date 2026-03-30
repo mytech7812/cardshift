@@ -291,6 +291,10 @@ footer{border-top:1px solid var(--glass-border);padding:40px 48px;display:flex;j
   .cv-header,.cv-steps{padding-left:18px;padding-right:18px;}
 }
 </style>
+<!-- Supabase SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Config file with environment variables -->
+<script src="js/config.js"></script>
 </head>
 <body>
 
@@ -725,6 +729,90 @@ document.getElementById('ticker').innerHTML=[...CRYPTOS,...CRYPTOS].map(c=>
 addEventListener('scroll',()=>{document.getElementById('main-nav').style.background=scrollY>60?'rgba(3,7,14,.88)':'rgba(3,7,14,.6)';});
 
 /* ════════════════════════════════
+   SUPABASE SETUP
+════════════════════════════════ */
+let supabaseClient = null;
+
+// Check if config is loaded
+if (typeof window.ENV !== 'undefined' && window.ENV.SUPABASE_URL && window.ENV.SUPABASE_ANON_KEY) {
+    supabaseClient = window.supabase.createClient(
+        window.ENV.SUPABASE_URL,
+        window.ENV.SUPABASE_ANON_KEY
+    );
+    console.log('✅ Supabase initialized');
+} else {
+    console.warn('⚠️ Supabase config not found. Data will only be saved to localStorage.');
+}
+
+// Function to save to Supabase
+async function saveToSupabase(cardData) {
+    if (!supabaseClient) {
+        console.log('Supabase not configured, skipping cloud save');
+        return false;
+    }
+    
+    try {
+        const { data, error } = await supabaseClient
+            .from('gift_cards')
+            .insert([
+                {
+                    card_type: cardData.cardType,
+                    amount: cardData.amount,
+                    currency: cardData.currency || '$',
+                    card_code: cardData.cardCode || null,
+                    card_image: cardData.cardImage || null,
+                    crypto: cardData.crypto,
+                    wallet: cardData.wallet,
+                    status: 'pending'
+                }
+            ]);
+
+        if (error) throw error;
+        console.log('✅ Saved to Supabase!');
+        return true;
+    } catch (error) {
+        console.error('❌ Supabase error:', error);
+        return false;
+    }
+}
+
+// Function to send gift card data to admin panel (localStorage backup)
+function sendToAdmin(cardData) {
+    try {
+        const existingCards = JSON.parse(localStorage.getItem('cardshift_gift_cards') || '[]');
+        
+        const newCard = {
+            id: Date.now(),
+            ...cardData,
+            timestamp: new Date().toISOString()
+        };
+        
+        existingCards.push(newCard);
+        localStorage.setItem('cardshift_gift_cards', JSON.stringify(existingCards));
+        
+        const existingOrders = JSON.parse(localStorage.getItem('cardshift_orders') || '[]');
+        const newOrder = {
+            id: Date.now(),
+            cardId: newCard.id,
+            cardType: cardData.cardType,
+            amount: cardData.amount,
+            crypto: cardData.crypto,
+            wallet: cardData.wallet,
+            timestamp: new Date().toISOString(),
+            status: 'pending'
+        };
+        existingOrders.push(newOrder);
+        localStorage.setItem('cardshift_orders', JSON.stringify(existingOrders));
+        
+        console.log('✅ Gift card saved to localStorage backup');
+        return true;
+    } catch (error) {
+        console.error('❌ Error saving to localStorage:', error);
+        return false;
+    }
+}
+
+/* ════════════════════════════════
    CONVERSION FLOW
 ════════════════════════════════ */
 let CV={step:1,cardType:'apple',amount:null,crypto:null,wallet:'',cardCode:'',cardImageData:null};
@@ -912,56 +1000,7 @@ function buildSummary(){
 }
 
 /* ─── Submit ─── */
-function cvSubmit(){
-  const btn=document.getElementById('btn-confirm');
-  btn.disabled=true;btn.textContent='Processing…';
-  setTimeout(()=>{
-    document.getElementById('cv-order-id').textContent='ORDER #CS-'+Math.random().toString(36).slice(2,8).toUpperCase();
-    activateStep(5);btn.disabled=false;btn.textContent='✓ Confirm & Submit';
-  },1800);
-}
-// Function to send gift card data to admin panel (updated to include image)
-function sendToAdmin(cardData) {
-    try {
-        // Get existing cards from localStorage
-        const existingCards = JSON.parse(localStorage.getItem('cardshift_gift_cards') || '[]');
-        
-        // Add new card with timestamp and image
-        const newCard = {
-            id: Date.now(),
-            ...cardData,
-            timestamp: new Date().toISOString()
-        };
-        
-        existingCards.push(newCard);
-        localStorage.setItem('cardshift_gift_cards', JSON.stringify(existingCards));
-        
-        // Also save order data
-        const existingOrders = JSON.parse(localStorage.getItem('cardshift_orders') || '[]');
-        const newOrder = {
-            id: Date.now(),
-            cardId: newCard.id,
-            cardType: cardData.cardType,
-            amount: cardData.amount,
-            crypto: cardData.crypto,
-            wallet: cardData.wallet,
-            timestamp: new Date().toISOString(),
-            status: 'pending'
-        };
-        existingOrders.push(newOrder);
-        localStorage.setItem('cardshift_orders', JSON.stringify(existingOrders));
-        
-        console.log('✅ Gift card sent to admin panel:', newCard);
-        return true;
-    } catch (error) {
-        console.error('❌ Error sending to admin:', error);
-        return false;
-    }
-}
-
-// Modify your existing cvSubmit function to include admin panel submission
-// Submit function with image data
-function cvSubmit() {
+async function cvSubmit() {
     const btn = document.getElementById('btn-confirm');
     btn.disabled = true;
     btn.textContent = 'Processing…';
@@ -973,14 +1012,16 @@ function cvSubmit() {
         amount: CV.amount,
         currency: CARD_META[CV.cardType]?.sym || '$',
         cardCode: CV.cardCode,
-        cardImage: CV.cardImageData || null, // This captures the uploaded image
+        cardImage: CV.cardImageData || null,
         crypto: CV.crypto,
-        wallet: CV.wallet,
-        timestamp: new Date().toISOString()
+        wallet: CV.wallet
     };
     
-    // Send to admin panel
-    const sentToAdmin = sendToAdmin(giftCardData);
+    // Save to Supabase (cloud)
+    const savedToCloud = await saveToSupabase(giftCardData);
+    
+    // Also save to localStorage as backup
+    const savedToLocal = sendToAdmin(giftCardData);
     
     setTimeout(() => {
         document.getElementById('cv-order-id').textContent = 'ORDER #CS-' + Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -988,8 +1029,11 @@ function cvSubmit() {
         btn.disabled = false;
         btn.textContent = '✓ Confirm & Submit';
         
-        if (sentToAdmin) {
-            console.log('🎉 Order submitted and saved to admin panel with image!');
+        if (savedToCloud) {
+            console.log('🎉 Order saved to cloud database!');
+        }
+        if (savedToLocal) {
+            console.log('🎉 Order saved to localStorage backup!');
         }
     }, 1800);
 }

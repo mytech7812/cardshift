@@ -1,0 +1,4 @@
+window.ENV = {
+    SUPABASE_URL: 'https://wfbrxznxzhszyitniljj.supabase.co',
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYnJ4em54emhzenlpdG5pbGpqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNzE5NzcsImV4cCI6MjA4OTc0Nzk3N30.r56zX7U22VWLNbG6DLO9OvlhYvqKR_STzmU9wNDoOVc'
+};
